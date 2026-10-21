@@ -1,0 +1,32 @@
+{
+  "name": "exampro",
+  "version": "1.0.0",
+  "description": "ExamPro — Enterprise Online Examination Portal (Full MERN Stack)",
+  "private": true,
+  "scripts": {
+    "server": "npm --prefix server run dev",
+    "client": "npm --prefix client run dev",
+    "start": "node server/src/server.js",
+    "build": "npm --prefix client run build",
+    "build:client": "npm --prefix client run build",
+    "render-build": "npm --prefix server install",
+    "seed": "npm --prefix server run seed",
+    "seed:practice": "node server/scripts/seedPracticeTests.js",
+    "test": "node server/scripts/testPracticeSuite.js && node server/scripts/testIntegration.js && node server/scripts/testAdminStudentActivity.js",
+    "test:practice": "node server/scripts/testPracticeSuite.js",
+    "test:exam": "node server/scripts/testIntegration.js",
+    "test:activity": "node server/scripts/testAdminStudentActivity.js",
+    "install:all": "npm install && npm --prefix server install && npm --prefix client install"
+  },
+  "keywords": [
+    "mern",
+    "online-exam",
+    "quiz-portal",
+    "examination-system",
+    "react",
+    "nodejs",
+    "mongodb"
+  ],
+  "author": "ExamPro Team",
+  "license": "MIT"
+}
