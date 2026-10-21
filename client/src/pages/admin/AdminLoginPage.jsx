@@ -37,12 +37,6 @@ export default function AdminLoginPage() {
     }
   };
 
-  const fillAdminCredentials = () => {
-    setEmail('admin@exampro.com');
-    setPassword('Admin@123456');
-    setErrorMsg('');
-  };
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
       {/* Background Orbs */}
@@ -66,17 +60,6 @@ export default function AdminLoginPage() {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4">
         <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-800 shadow-2xl space-y-6">
-          {/* Quick Fill Demo Helper */}
-          <div className="p-3 rounded-2xl bg-amber-500/5 border border-amber-500/20 text-xs flex items-center justify-between">
-            <span className="text-amber-200 font-medium">Demo Administrator Account:</span>
-            <button
-              type="button"
-              onClick={fillAdminCredentials}
-              className="py-1 px-2.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-[11px] font-bold border border-amber-500/30 transition-all cursor-pointer"
-            >
-              Auto-Fill Credentials
-            </button>
-          </div>
 
           {errorMsg && (
             <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs">
