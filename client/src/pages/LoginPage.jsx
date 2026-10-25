@@ -52,8 +52,8 @@ export default function LoginPage() {
   // Quick fill helper for evaluation & pairing convenience
   const fillCredentials = (role) => {
     if (role === 'admin') {
-      setValue('email', 'admin@exampro.com');
-      setValue('password', 'Admin@123456');
+      setValue('email', 'nishadbrother9115@gmail.com');
+      setValue('password', 'R@hul1215');
     } else {
       setValue('email', 'student@exampro.com');
       setValue('password', 'Student@123');
