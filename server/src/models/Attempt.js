@@ -8,8 +8,12 @@ const answerSchema = new mongoose.Schema(
       required: true,
     },
     selectedOption: {
-      type: Number,
+      type: mongoose.Schema.Types.Mixed,
       default: null, // null = unanswered
+    },
+    selectedOptions: {
+      type: [Number],
+      default: undefined,
     },
     isMarkedForReview: {
       type: Boolean,
@@ -62,6 +66,12 @@ const attemptSchema = new mongoose.Schema(
       enum: ['in_progress', 'submitted', 'expired'],
       default: 'in_progress',
     },
+    questionOrder: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Question',
+      },
+    ],
     answers: [answerSchema],
     // Result fields (populated after submission)
     score: {

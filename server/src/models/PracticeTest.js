@@ -31,10 +31,19 @@ const practiceQuestionSchema = new mongoose.Schema(
         message: 'A practice question must have at least 2 options',
       },
     },
+    questionType: {
+      type: String,
+      enum: ['MCQ', 'MSQ'],
+      default: 'MCQ',
+    },
     correctOption: {
       type: Number,
-      required: [true, 'Correct option index is required'],
+      required: false,
       min: 0,
+    },
+    correctOptions: {
+      type: [Number],
+      default: undefined,
     },
     explanation: {
       type: String,
@@ -97,6 +106,10 @@ const practiceTestSchema = new mongoose.Schema(
     allowChangeAnswer: {
       type: Boolean,
       default: false, // Default: lock first selection after feedback
+    },
+    shuffleQuestions: {
+      type: Boolean,
+      default: true,
     },
     marksPerQuestion: {
       type: Number,

@@ -224,8 +224,12 @@ export default function PracticeResultPage() {
           {questions.map((q, idx) => {
             const hasAnswered = q.hasAnswered;
             const isCorrect = q.isCorrect;
-            const selectedOpt = q.selectedOption;
-            const correctOpt = q.correctOption;
+            const selectedOpts = Array.isArray(q.selectedOptions) && q.selectedOptions.length > 0
+              ? q.selectedOptions
+              : (Array.isArray(q.selectedOption) ? q.selectedOption : (q.selectedOption !== null && q.selectedOption !== undefined ? [q.selectedOption] : []));
+            const correctOpts = Array.isArray(q.correctOptions) && q.correctOptions.length > 0
+              ? q.correctOptions
+              : (q.correctOption !== null && q.correctOption !== undefined ? [q.correctOption] : []);
 
             return (
               <div
@@ -244,6 +248,11 @@ export default function PracticeResultPage() {
                     <span className="font-extrabold text-xs px-2.5 py-1 rounded-lg bg-slate-900 text-slate-300 border border-slate-800">
                       Question {idx + 1}
                     </span>
+                    {q.questionType === 'MSQ' && (
+                      <span className="font-extrabold text-xs px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        MSQ
+                      </span>
+                    )}
                     {q.topic && (
                       <span className="text-xs text-slate-400 px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
                         #{q.topic}
@@ -273,21 +282,26 @@ export default function PracticeResultPage() {
                 {/* Question Text */}
                 <h3 className="text-base font-bold text-white mb-6 leading-relaxed">
                   {q.questionText}
+                  {q.questionType === 'MSQ' && (
+                    <span className="ml-2.5 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 align-middle">
+                      (Select {q.selectCount || correctOpts.length || 2} options)
+                    </span>
+                  )}
                 </h3>
 
                 {/* Options Review */}
                 <div className="space-y-3 mb-6">
                   {q.options.map((opt, optIdx) => {
-                    const isCandidateChoice = selectedOpt === optIdx;
-                    const isCorrectAnswer = correctOpt === optIdx;
+                    const isCandidateChoice = selectedOpts.includes(optIdx);
+                    const isCorrectAnswer = correctOpts.includes(optIdx);
 
                     let optBg = 'bg-slate-900/60 border-slate-800 text-slate-300';
                     let optBadge = 'bg-slate-800 text-slate-400 border-slate-700';
 
-                    if (isCandidateChoice && isCorrect) {
+                    if (isCandidateChoice && isCorrectAnswer) {
                       optBg = 'bg-emerald-500/20 border-emerald-500 text-emerald-100 font-semibold';
                       optBadge = 'bg-emerald-500 text-white font-extrabold';
-                    } else if (isCandidateChoice && !isCorrect) {
+                    } else if (isCandidateChoice && !isCorrectAnswer) {
                       optBg = 'bg-rose-500/20 border-rose-500 text-rose-100 font-semibold';
                       optBadge = 'bg-rose-500 text-white font-extrabold';
                     } else if (!isCandidateChoice && isCorrectAnswer) {
@@ -311,12 +325,12 @@ export default function PracticeResultPage() {
 
                         {/* Status Label on Option */}
                         <div className="flex-shrink-0">
-                          {isCandidateChoice && isCorrect && (
+                          {isCandidateChoice && isCorrectAnswer && (
                             <span className="text-[11px] font-bold text-emerald-400">
                               Your Answer (Correct)
                             </span>
                           )}
-                          {isCandidateChoice && !isCorrect && (
+                          {isCandidateChoice && !isCorrectAnswer && (
                             <span className="text-[11px] font-bold text-rose-400">
                               Your Answer (Wrong)
                             </span>

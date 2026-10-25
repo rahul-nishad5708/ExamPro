@@ -12,36 +12,14 @@ const __dirname = path.dirname(__filename);
 
 const IOT_EXAM_ID = '6ad934fdae8e9b79f4db18be';
 
-function parseAnswerToIndex(rawAns, optionsLength) {
-  if (!rawAns) return 0;
-  const cleaned = rawAns.trim();
-  const upper = cleaned.toUpperCase();
-
-  // Single letter checks
-  if (upper === 'A' || upper.startsWith('A,') || upper.startsWith('A ') || upper.startsWith('A/')) return 0;
-  if (upper === 'B' || upper.startsWith('B,') || upper.startsWith('B ') || upper.startsWith('B/')) return 1;
-  if (upper === 'C' || upper.startsWith('C,') || upper.startsWith('C ') || upper.startsWith('C/')) return 2;
-  if (upper === 'D' || upper.startsWith('D,') || upper.startsWith('D ') || upper.startsWith('D/')) return 3;
-
-  // Phrases like "a, b, and c" or "a, b, and d" or "a, b, c, and d"
-  if (cleaned.toLowerCase().includes('a, b, c, and d')) {
-    // If all are correct, any option is valid, default to 0
-    return 0;
-  }
-  if (cleaned.toLowerCase().startsWith('a,')) {
-    return 0;
-  }
-  if (cleaned.toLowerCase().startsWith('b,')) {
-    return 1;
-  }
-  if (cleaned.toLowerCase().startsWith('c,')) {
-    return 2;
-  }
-  if (cleaned.toLowerCase().startsWith('d,')) {
-    return 3;
-  }
-
-  return 0;
+function parseAnswers(rawAns, optionsLength) {
+  if (!rawAns) return [0];
+  const matches = (rawAns.match(/\b[A-Da-d]\b/g) || []).map((ch) => ch.toUpperCase());
+  const unique = Array.from(new Set(matches)).sort();
+  const indices = unique
+    .map((ch) => ch.charCodeAt(0) - 65)
+    .filter((idx) => idx >= 0 && idx < optionsLength);
+  return indices.length > 0 ? indices : [0];
 }
 
 async function run() {
@@ -87,10 +65,9 @@ async function run() {
       continue;
     }
 
-    const correctIndex = parseAnswerToIndex(rawAnswer, options.length);
-    if (correctIndex >= options.length) {
-      console.warn(`Line ${i + 1} correctIndex ${correctIndex} out of bounds (${options.length})`);
-    }
+    const isMSQ = qType === 'MSQ';
+    const correctOptions = parseAnswers(rawAnswer, options.length);
+    const correctOption = correctOptions[0] ?? 0;
 
     let finalExplanation = explanation;
     if (rawAnswer && (rawAnswer.includes(',') || rawAnswer.length > 1)) {
@@ -101,9 +78,11 @@ async function run() {
       examId: new mongoose.Types.ObjectId(IOT_EXAM_ID),
       questionText,
       options,
-      correctOption: correctIndex,
+      questionType: isMSQ ? 'MSQ' : 'MCQ',
+      correctOption,
+      correctOptions,
       explanation: finalExplanation.slice(0, 3000),
-      difficulty: qType === 'MSQ' ? 'Hard' : 'Medium',
+      difficulty: isMSQ ? 'Hard' : 'Medium',
       topic: `Week ${week}`,
       order: questionsToInsert.length,
     });
@@ -132,15 +111,18 @@ async function run() {
   // Update Exam totalQuestions and marksPerQuestion if needed
   exam.totalQuestions = inserted.length;
   exam.status = 'published';
-  exam.instructions = '1. This exam contains 165 comprehensive IoT multiple-choice questions from NPTEL Week 1 to Week 12.\n2. Review each question carefully.\n3. Click Submit when you have completed all questions.';
+  exam.shuffleQuestions = true;
+  exam.instructions = '1. This exam contains 165 comprehensive IoT multiple-choice and multiple-select questions from NPTEL Week 1 to Week 12.\n2. Review each question carefully.\n3. Click Submit when you have completed all questions.';
   await exam.save();
-  console.log(`✅ Updated Exam "${exam.title}": totalQuestions = ${exam.totalQuestions}, status = ${exam.status}`);
+  console.log(`✅ Updated Exam "${exam.title}": totalQuestions = ${exam.totalQuestions}, status = ${exam.status}, shuffleQuestions = ${exam.shuffleQuestions}`);
 
   // Also create/update a Practice Test version so students can practice with instant feedback!
   const practiceQuestions = questionsToInsert.map((q, idx) => ({
     questionText: q.questionText,
     options: q.options,
+    questionType: q.questionType,
     correctOption: q.correctOption,
+    correctOptions: q.correctOptions,
     explanation: q.explanation,
     difficulty: q.difficulty,
     topic: q.topic,
@@ -153,6 +135,7 @@ async function run() {
   if (existingPt) {
     existingPt.questions = practiceQuestions;
     existingPt.status = 'published';
+    existingPt.shuffleQuestions = true;
     await existingPt.save();
     console.log(`✅ Updated existing Practice Test: "${existingPt.title}" with ${practiceQuestions.length} questions.`);
   } else {

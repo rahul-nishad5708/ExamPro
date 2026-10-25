@@ -17,6 +17,7 @@ import {
   Award,
   Zap,
   Target,
+  Loader2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
@@ -36,6 +37,7 @@ export default function PracticeAttemptPage() {
   // Instant evaluation state
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evaluatingIndex, setEvaluatingIndex] = useState(null);
+  const [pendingMSQSelections, setPendingMSQSelections] = useState({});
 
   // Live metrics summary
   const [stats, setStats] = useState({
@@ -99,7 +101,7 @@ export default function PracticeAttemptPage() {
     };
   }, [practiceTestId]);
 
-  // Handle immediate option selection & backend evaluation
+  // Handle option selection
   const handleSelectOption = async (optionIndex) => {
     if (!attempt?._id) return;
     const currentQ = questions[currentIndex];
@@ -113,6 +115,20 @@ export default function PracticeAttemptPage() {
       return;
     }
 
+    // For MSQ: toggle selection without immediately evaluating!
+    if (currentQ.questionType === 'MSQ') {
+      setPendingMSQSelections((prev) => {
+        const list = prev[currentQ._id] ||
+          (currentQ.hasAnswered && currentQ.selectedOptions ? [...currentQ.selectedOptions] : []);
+        const nextList = list.includes(optionIndex)
+          ? list.filter((i) => i !== optionIndex)
+          : [...list, optionIndex].sort((a, b) => a - b);
+        return { ...prev, [currentQ._id]: nextList };
+      });
+      return;
+    }
+
+    // For MCQ: immediate submit & evaluation
     setIsEvaluating(true);
     setEvaluatingIndex(optionIndex);
 
@@ -124,19 +140,19 @@ export default function PracticeAttemptPage() {
       });
 
       if (res.success) {
-        // Update current question with server evaluated results
         const updatedQuestions = [...questions];
         updatedQuestions[currentIndex] = {
           ...currentQ,
           hasAnswered: true,
           selectedOption: optionIndex,
+          selectedOptions: res.selectedOptions || [optionIndex],
           isCorrect: res.isCorrect,
           correctOption: res.correctOption,
+          correctOptions: res.correctOptions,
           explanation: res.explanation || currentQ.explanation || '',
         };
         setQuestions(updatedQuestions);
 
-        // Update live counters
         if (res.stats) {
           setStats(res.stats);
         }
@@ -152,6 +168,60 @@ export default function PracticeAttemptPage() {
     } finally {
       setIsEvaluating(false);
       setEvaluatingIndex(null);
+    }
+  };
+
+  // Explicit submit for MSQ questions
+  const handleSubmitMSQ = async () => {
+    if (!attempt?._id || isEvaluating) return;
+    const currentQ = questions[currentIndex];
+    if (!currentQ) return;
+
+    const selections = pendingMSQSelections[currentQ._id] ||
+      (currentQ.hasAnswered && currentQ.selectedOptions ? currentQ.selectedOptions : []);
+
+    if (selections.length === 0) {
+      toast.error('Please select at least one option before submitting.');
+      return;
+    }
+
+    setIsEvaluating(true);
+
+    try {
+      const res = await practiceService.submitPracticeAnswer(attempt._id, {
+        questionId: currentQ._id,
+        selectedOptions: selections,
+        currentQuestionIndex: currentIndex,
+      });
+
+      if (res.success) {
+        const updatedQuestions = [...questions];
+        updatedQuestions[currentIndex] = {
+          ...currentQ,
+          hasAnswered: true,
+          selectedOption: res.selectedOption,
+          selectedOptions: res.selectedOptions || selections,
+          isCorrect: res.isCorrect,
+          correctOption: res.correctOption,
+          correctOptions: res.correctOptions,
+          explanation: res.explanation || currentQ.explanation || '',
+        };
+        setQuestions(updatedQuestions);
+
+        if (res.stats) {
+          setStats(res.stats);
+        }
+
+        if (res.isCorrect) {
+          toast.success('Correct Answer! All correct options selected! 🎉', { duration: 3000 });
+        } else {
+          toast.error('Wrong Answer! Not all correct options were selected.', { duration: 3500 });
+        }
+      }
+    } catch (err) {
+      toast.error(err.message || 'Failed to submit answer.');
+    } finally {
+      setIsEvaluating(false);
     }
   };
 
@@ -297,6 +367,11 @@ export default function PracticeAttemptPage() {
                   <span className="px-3 py-1 rounded-xl bg-violet-600/20 text-violet-300 font-extrabold text-xs border border-violet-500/30">
                     Question {currentIndex + 1} of {questions.length}
                   </span>
+                  {currentQ.questionType === 'MSQ' && (
+                    <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 text-amber-300 font-extrabold text-xs border border-amber-500/30">
+                      MSQ
+                    </span>
+                  )}
                   {currentQ.topic && (
                     <span className="text-xs text-slate-400 font-medium px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800">
                       #{currentQ.topic}
@@ -318,6 +393,11 @@ export default function PracticeAttemptPage() {
               <div className="space-y-4 mb-8">
                 <h2 className="text-base sm:text-lg font-bold text-slate-100 leading-relaxed">
                   {currentQ.questionText}
+                  {currentQ.questionType === 'MSQ' && (
+                    <span className="ml-2.5 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 align-middle">
+                      (Select {currentQ.selectCount || 2} options)
+                    </span>
+                  )}
                 </h2>
 
                 {currentQ.imageUrl && (
@@ -336,14 +416,53 @@ export default function PracticeAttemptPage() {
                 <PracticeOptionSelector
                   options={currentQ.options}
                   selectedOption={currentQ.selectedOption}
+                  selectedOptions={
+                    currentQ.hasAnswered
+                      ? (currentQ.selectedOptions || (Array.isArray(currentQ.selectedOption) ? currentQ.selectedOption : (currentQ.selectedOption !== null && currentQ.selectedOption !== undefined ? [currentQ.selectedOption] : [])))
+                      : (pendingMSQSelections[currentQ._id] || [])
+                  }
                   correctOption={currentQ.correctOption}
+                  correctOptions={currentQ.correctOptions}
                   isCorrect={currentQ.isCorrect}
                   hasAnswered={currentQ.hasAnswered}
                   isEvaluating={isEvaluating}
                   evaluatingIndex={evaluatingIndex}
                   onSelectOption={handleSelectOption}
                   disabled={isEvaluating}
+                  questionType={currentQ.questionType || 'MCQ'}
                 />
+
+                {/* Explicit Submit button for MSQ questions */}
+                {currentQ.questionType === 'MSQ' && (!currentQ.hasAnswered || allowChangeAnswer) && (
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-indigo-950/20 border border-indigo-500/30">
+                    <div className="text-xs text-slate-300 flex items-center gap-2">
+                      <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                        {(pendingMSQSelections[currentQ._id] || currentQ.selectedOptions || []).length} of {currentQ.selectCount || 2} selected
+                      </span>
+                      <span className="text-slate-400">
+                        Select all {currentQ.selectCount || 2} correct options before checking answer
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isEvaluating || (pendingMSQSelections[currentQ._id] || currentQ.selectedOptions || []).length === 0}
+                      onClick={handleSubmitMSQ}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white shadow-lg shadow-indigo-600/30 transition-all cursor-pointer"
+                    >
+                      {isEvaluating ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Evaluating...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Submit Answer</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Immediate Explanation Box (Revealed once answered) */}

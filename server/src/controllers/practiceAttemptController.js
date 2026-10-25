@@ -35,40 +35,85 @@ const buildStudentQuestionsView = (questions, answers) => {
   return questions.map((q) => {
     const raw = q.toObject ? q.toObject() : { ...q };
     const answered = answeredMap.get(raw._id.toString());
+    const isMSQ = raw.questionType === 'MSQ';
+    const selectCount = isMSQ && Array.isArray(raw.correctOptions) ? raw.correctOptions.length : 1;
 
     if (answered) {
       // For answered questions, reveal stored feedback and selections
+      const resolvedSelectedOptions = answered.selectedOptions ||
+        (Array.isArray(answered.selectedOption)
+          ? answered.selectedOption
+          : (answered.selectedOption !== null && answered.selectedOption !== undefined ? [answered.selectedOption] : []));
+
+      const resolvedCorrectOptions = answered.correctOptions || raw.correctOptions ||
+        (raw.correctOption !== undefined ? [raw.correctOption] : []);
+
       return {
         _id: raw._id,
         questionText: raw.questionText,
         imageUrl: raw.imageUrl,
         options: raw.options,
+        questionType: raw.questionType || 'MCQ',
+        selectCount,
         topic: raw.topic,
         difficulty: raw.difficulty,
         marks: raw.marks,
         order: raw.order,
         hasAnswered: true,
         selectedOption: answered.selectedOption,
+        selectedOptions: resolvedSelectedOptions,
         isCorrect: answered.isCorrect,
         correctOption: answered.correctOption !== undefined ? answered.correctOption : raw.correctOption,
+        correctOptions: resolvedCorrectOptions,
         explanation: answered.explanation || raw.explanation || '',
       };
     }
 
-    // For unanswered questions, strip correctOption and explanation!
+    // For unanswered questions, strip correctOption/correctOptions and explanation!
     return {
       _id: raw._id,
       questionText: raw.questionText,
       imageUrl: raw.imageUrl,
       options: raw.options,
+      questionType: raw.questionType || 'MCQ',
+      selectCount,
       topic: raw.topic,
       difficulty: raw.difficulty,
       marks: raw.marks,
       order: raw.order,
       hasAnswered: false,
       selectedOption: null,
+      selectedOptions: [],
       isCorrect: null,
     };
+  });
+};
+
+/**
+ * Fisher-Yates shuffle helper
+ */
+const shuffleArray = (items) => {
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+};
+
+/**
+ * Re-order questions based on attempt's saved questionOrder
+ */
+const getOrderedPracticeQuestions = (practiceTestQuestions, questionOrder) => {
+  if (!questionOrder || questionOrder.length === 0) {
+    return practiceTestQuestions;
+  }
+  const orderMap = new Map();
+  questionOrder.forEach((id, idx) => orderMap.set(id.toString(), idx));
+  return [...practiceTestQuestions].sort((a, b) => {
+    const idxA = orderMap.has(a._id.toString()) ? orderMap.get(a._id.toString()) : 9999;
+    const idxB = orderMap.has(b._id.toString()) ? orderMap.get(b._id.toString()) : 9999;
+    return idxA - idxB;
   });
 };
 
@@ -109,7 +154,8 @@ export const startPracticeAttempt = asyncHandler(async (req, res) => {
     });
 
     if (existing) {
-      const questionsView = buildStudentQuestionsView(practiceTest.questions, existing.answers);
+      const orderedQuestions = getOrderedPracticeQuestions(practiceTest.questions, existing.questionOrder);
+      const questionsView = buildStudentQuestionsView(orderedQuestions, existing.answers);
       return res.json({
         success: true,
         message: 'Resuming existing practice session',
@@ -119,6 +165,11 @@ export const startPracticeAttempt = asyncHandler(async (req, res) => {
       });
     }
   }
+
+  // Fresh attempt: shuffle questions so every new user sees questions in a unique random order!
+  const shouldShuffle = practiceTest.shuffleQuestions !== false;
+  const questionsToUse = shouldShuffle ? shuffleArray(practiceTest.questions) : [...practiceTest.questions];
+  const questionOrder = questionsToUse.map((q) => q._id);
 
   // Start a fresh practice attempt (new record)
   const now = new Date();
@@ -131,6 +182,7 @@ export const startPracticeAttempt = asyncHandler(async (req, res) => {
     subject: practiceTest.subject,
     startedAt: now,
     status: 'in_progress',
+    questionOrder,
     answers: [],
     totalQuestions: practiceTest.questions.length,
     attemptedQuestions: 0,
@@ -144,7 +196,7 @@ export const startPracticeAttempt = asyncHandler(async (req, res) => {
     currentQuestionIndex: 0,
   });
 
-  const sanitizedQuestions = buildStudentQuestionsView(practiceTest.questions, []);
+  const sanitizedQuestions = buildStudentQuestionsView(questionsToUse, []);
 
   res.status(201).json({
     success: true,
@@ -167,15 +219,29 @@ export const getPracticeAttempt = asyncHandler(async (req, res) => {
   const practiceTest = await PracticeTest.findById(attempt.practiceTestId);
   if (!practiceTest) throw new NotFoundError('Associated practice test not found');
 
+  const orderedQuestions = getOrderedPracticeQuestions(practiceTest.questions, attempt.questionOrder);
+
   // If completed, provide full question review
   if (attempt.status === 'completed') {
-    const fullQuestions = practiceTest.questions.map((q) => {
+    const fullQuestions = orderedQuestions.map((q) => {
       const raw = q.toObject ? q.toObject() : { ...q };
       const ans = attempt.answers.find((a) => a.questionId.toString() === raw._id.toString());
+      const isMSQ = raw.questionType === 'MSQ';
+      const selectCount = isMSQ && Array.isArray(raw.correctOptions) ? raw.correctOptions.length : 1;
+      const resolvedSelectedOptions = ans
+        ? (ans.selectedOptions || (Array.isArray(ans.selectedOption) ? ans.selectedOption : (ans.selectedOption !== null && ans.selectedOption !== undefined ? [ans.selectedOption] : [])))
+        : [];
+      const resolvedCorrectOptions = ans?.correctOptions || raw.correctOptions || (raw.correctOption !== undefined ? [raw.correctOption] : []);
+
       return {
         ...raw,
+        questionType: raw.questionType || 'MCQ',
+        selectCount,
         hasAnswered: !!ans,
         selectedOption: ans ? ans.selectedOption : null,
+        selectedOptions: resolvedSelectedOptions,
+        correctOption: ans?.correctOption !== undefined ? ans.correctOption : raw.correctOption,
+        correctOptions: resolvedCorrectOptions,
         isCorrect: ans ? ans.isCorrect : false,
       };
     });
@@ -189,7 +255,7 @@ export const getPracticeAttempt = asyncHandler(async (req, res) => {
   }
 
   // If in_progress, strip answers for questions that have not been answered yet!
-  const questionsView = buildStudentQuestionsView(practiceTest.questions, attempt.answers);
+  const questionsView = buildStudentQuestionsView(orderedQuestions, attempt.answers);
 
   res.json({
     success: true,
@@ -202,10 +268,10 @@ export const getPracticeAttempt = asyncHandler(async (req, res) => {
 // POST /api/practice-attempts/:id/answer — Evaluate selected answer with instant feedback
 export const evaluatePracticeAnswer = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { questionId, selectedOption, currentQuestionIndex } = req.body;
+  const { questionId, selectedOption, selectedOptions, currentQuestionIndex } = req.body;
 
-  if (questionId === undefined || selectedOption === undefined || selectedOption === null) {
-    throw new BadRequestError('Question ID and selected option index are required.');
+  if (questionId === undefined || (selectedOption === undefined && selectedOptions === undefined)) {
+    throw new BadRequestError('Question ID and selected option(s) are required.');
   }
 
   const attempt = await PracticeAttempt.findById(id);
@@ -227,19 +293,51 @@ export const evaluatePracticeAnswer = asyncHandler(async (req, res) => {
     throw new NotFoundError('Question not found in this practice test.');
   }
 
-  if (selectedOption < 0 || selectedOption >= question.options.length) {
-    throw new BadRequestError('Selected option index is out of range.');
+  // Normalize selected options
+  let chosenIndices = [];
+  if (Array.isArray(selectedOptions)) {
+    chosenIndices = selectedOptions.map(Number);
+  } else if (Array.isArray(selectedOption)) {
+    chosenIndices = selectedOption.map(Number);
+  } else if (selectedOption !== null && selectedOption !== undefined) {
+    chosenIndices = [Number(selectedOption)];
+  }
+
+  chosenIndices = Array.from(new Set(chosenIndices)).sort((a, b) => a - b);
+
+  if (chosenIndices.length === 0) {
+    throw new BadRequestError('At least one option must be selected.');
+  }
+
+  for (const idx of chosenIndices) {
+    if (idx < 0 || idx >= question.options.length) {
+      throw new BadRequestError('Selected option index is out of range.');
+    }
+  }
+
+  const isMSQ = question.questionType === 'MSQ';
+  const targetCorrectOptions = (isMSQ && Array.isArray(question.correctOptions) && question.correctOptions.length > 0)
+    ? [...question.correctOptions].sort((a, b) => a - b)
+    : (question.correctOption !== undefined ? [question.correctOption] : []);
+
+  // Strict check: all correct options must be selected and none of the wrong options
+  let isCorrect = false;
+  if (isMSQ) {
+    isCorrect = chosenIndices.length === targetCorrectOptions.length &&
+      chosenIndices.every((val, i) => val === targetCorrectOptions[i]);
+  } else {
+    isCorrect = chosenIndices.length === 1 && chosenIndices[0] === question.correctOption;
   }
 
   const questionMarks = question.marks || practiceTest.marksPerQuestion || 1;
   const questionNegMarks = practiceTest.negativeMarks || 0;
+  const scoreAwarded = isCorrect ? questionMarks : -questionNegMarks;
+  const primarySelected = chosenIndices.length === 1 ? chosenIndices[0] : chosenIndices;
 
   // Check if this question was already answered
   const existingAnswerIndex = attempt.answers.findIndex(
     (a) => a.questionId.toString() === questionId.toString()
   );
-
-  let isCorrect;
 
   if (existingAnswerIndex !== -1) {
     const existingAnswer = attempt.answers[existingAnswerIndex];
@@ -251,8 +349,10 @@ export const evaluatePracticeAnswer = asyncHandler(async (req, res) => {
         message: 'First selection is locked for this practice test.',
         isCorrect: existingAnswer.isCorrect,
         correctOption: question.correctOption,
+        correctOptions: targetCorrectOptions,
         explanation: question.explanation || '',
         selectedOption: existingAnswer.selectedOption,
+        selectedOptions: existingAnswer.selectedOptions || (Array.isArray(existingAnswer.selectedOption) ? existingAnswer.selectedOption : [existingAnswer.selectedOption]),
         locked: true,
         stats: {
           attemptedQuestions: attempt.attemptedQuestions,
@@ -267,24 +367,24 @@ export const evaluatePracticeAnswer = asyncHandler(async (req, res) => {
     }
 
     // Changing answer is permitted by admin configuration
-    isCorrect = Number(selectedOption) === question.correctOption;
-    existingAnswer.selectedOption = Number(selectedOption);
+    existingAnswer.selectedOption = primarySelected;
+    existingAnswer.selectedOptions = chosenIndices;
     existingAnswer.isCorrect = isCorrect;
-    existingAnswer.scoreAwarded = isCorrect ? questionMarks : -questionNegMarks;
+    existingAnswer.scoreAwarded = scoreAwarded;
     existingAnswer.correctOption = question.correctOption;
+    existingAnswer.correctOptions = targetCorrectOptions;
     existingAnswer.explanation = question.explanation || '';
     existingAnswer.answeredAt = new Date();
   } else {
     // First-time answering this question
-    isCorrect = Number(selectedOption) === question.correctOption;
-    const scoreAwarded = isCorrect ? questionMarks : -questionNegMarks;
-
     attempt.answers.push({
       questionId: question._id,
-      selectedOption: Number(selectedOption),
+      selectedOption: primarySelected,
+      selectedOptions: chosenIndices,
       isCorrect,
       scoreAwarded,
       correctOption: question.correctOption,
+      correctOptions: targetCorrectOptions,
       explanation: question.explanation || '',
       answeredAt: new Date(),
     });
@@ -317,8 +417,10 @@ export const evaluatePracticeAnswer = asyncHandler(async (req, res) => {
     message: isCorrect ? 'Correct Answer!' : 'Wrong Answer!',
     isCorrect,
     correctOption: question.correctOption,
+    correctOptions: targetCorrectOptions,
     explanation: question.explanation || '',
-    selectedOption: Number(selectedOption),
+    selectedOption: primarySelected,
+    selectedOptions: chosenIndices,
     stats: {
       attemptedQuestions: attempt.attemptedQuestions,
       correctAnswers: attempt.correctAnswers,

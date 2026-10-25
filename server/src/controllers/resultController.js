@@ -73,14 +73,30 @@ export const getResult = asyncHandler(async (req, res) => {
     exam.showAnswerKey &&
     (!exam.answerKeyReleaseDate || new Date() >= exam.answerKeyReleaseDate);
 
-  let questions;
+  const orderMap = new Map();
+  if (attempt.questionOrder && attempt.questionOrder.length > 0) {
+    attempt.questionOrder.forEach((id, idx) => orderMap.set(id.toString(), idx));
+  } else if (attempt.answers && attempt.answers.length > 0) {
+    attempt.answers.forEach((a, idx) => orderMap.set(a.questionId.toString(), idx));
+  }
+
+  const sortQuestionsByAttemptOrder = (qList) => {
+    if (orderMap.size === 0) return qList;
+    return [...qList].sort((a, b) => {
+      const idxA = orderMap.has(a._id.toString()) ? orderMap.get(a._id.toString()) : a.order || 0;
+      const idxB = orderMap.has(b._id.toString()) ? orderMap.get(b._id.toString()) : b.order || 0;
+      return idxA - idxB;
+    });
+  };
+
+  let rawQuestions;
   if (canShowAnswers || req.user.role === 'admin') {
-    questions = await Question.find({ examId: exam._id }).sort({ order: 1 });
+    rawQuestions = await Question.find({ examId: exam._id });
   } else {
-    questions = await Question.find({ examId: exam._id })
-      .sort({ order: 1 })
+    rawQuestions = await Question.find({ examId: exam._id })
       .select('-correctOption -explanation');
   }
+  const questions = sortQuestionsByAttemptOrder(rawQuestions);
 
   res.json({
     success: true,

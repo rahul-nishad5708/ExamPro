@@ -84,7 +84,7 @@ const examSchema = new mongoose.Schema(
     },
     shuffleQuestions: {
       type: Boolean,
-      default: false,
+      default: true,
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

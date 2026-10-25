@@ -21,6 +21,11 @@ export default function QuestionCard({
             <span className="px-3 py-1 rounded-lg bg-indigo-600/20 text-indigo-300 font-bold text-xs border border-indigo-500/20">
               Question {questionNumber} of {totalQuestions}
             </span>
+            {question.questionType === 'MSQ' && (
+              <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-bold text-xs border border-amber-500/30">
+                MSQ
+              </span>
+            )}
             {question.topic && (
               <span className="text-xs text-slate-400 font-medium px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
                 {question.topic}
@@ -42,6 +47,11 @@ export default function QuestionCard({
         <div className="mb-6">
           <h2 className="text-base sm:text-lg font-semibold text-slate-100 leading-relaxed">
             {question.questionText}
+            {question.questionType === 'MSQ' && (
+              <span className="ml-2.5 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 align-middle">
+                (Select {question.selectCount || 2} options)
+              </span>
+            )}
           </h2>
 
           {question.imageUrl && (
@@ -59,6 +69,7 @@ export default function QuestionCard({
         <OptionSelector
           options={question.options}
           selectedOption={selectedOption}
+          questionType={question.questionType || 'MCQ'}
           onSelectOption={onSelectOption}
         />
       </div>

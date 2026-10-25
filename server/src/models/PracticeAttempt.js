@@ -7,8 +7,12 @@ const practiceAnswerSchema = new mongoose.Schema(
       required: true,
     },
     selectedOption: {
-      type: Number,
-      required: true,
+      type: mongoose.Schema.Types.Mixed,
+      required: false,
+    },
+    selectedOptions: {
+      type: [Number],
+      default: undefined,
     },
     isCorrect: {
       type: Boolean,
@@ -25,6 +29,10 @@ const practiceAnswerSchema = new mongoose.Schema(
     correctOption: {
       type: Number,
       required: false,
+    },
+    correctOptions: {
+      type: [Number],
+      default: undefined,
     },
     explanation: {
       type: String,
@@ -85,6 +93,11 @@ const practiceAttemptSchema = new mongoose.Schema(
       default: 'in_progress',
       index: true,
     },
+    questionOrder: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+      },
+    ],
     answers: [practiceAnswerSchema],
     totalQuestions: {
       type: Number,

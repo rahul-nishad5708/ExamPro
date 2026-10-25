@@ -102,16 +102,32 @@ export const startAttempt = asyncHandler(async (req, res) => {
   }
 
   // Get questions
-  const questions = await Question.find({ examId }).sort({ order: 1 });
-  if (questions.length === 0) {
+  const rawQuestions = await Question.find({ examId });
+  if (rawQuestions.length === 0) {
     throw new BadRequestError('This exam has no questions.');
   }
+
+  // Shuffle questions for each new candidate attempt
+  const shouldShuffle = exam.shuffleQuestions !== false;
+  const questions = shouldShuffle
+    ? (() => {
+        const arr = [...rawQuestions];
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+      })()
+    : rawQuestions.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  const questionOrder = questions.map((q) => q._id);
 
   // Create attempt with empty answers
   const expiresAt = new Date(now.getTime() + exam.durationMinutes * 60 * 1000);
   const answers = questions.map((q) => ({
     questionId: q._id,
     selectedOption: null,
+    selectedOptions: [],
     isMarkedForReview: false,
   }));
 
@@ -122,6 +138,7 @@ export const startAttempt = asyncHandler(async (req, res) => {
     examId,
     startedAt: now,
     expiresAt,
+    questionOrder,
     answers,
     currentQuestionIndex: 0,
   });
@@ -129,8 +146,12 @@ export const startAttempt = asyncHandler(async (req, res) => {
   // Return questions without correct answers
   const sanitizedQuestions = questions.map((q) => {
     const obj = q.toObject();
+    const isMSQ = obj.questionType === 'MSQ';
+    const selectCount = isMSQ && Array.isArray(obj.correctOptions) ? obj.correctOptions.length : 1;
     delete obj.correctOption;
+    delete obj.correctOptions;
     delete obj.explanation;
+    obj.selectCount = selectCount;
     return obj;
   });
 
@@ -151,16 +172,41 @@ export const getAttempt = asyncHandler(async (req, res) => {
     throw new ForbiddenError('You can only view your own attempts.');
   }
 
+  const orderMap = new Map();
+  if (attempt.questionOrder && attempt.questionOrder.length > 0) {
+    attempt.questionOrder.forEach((id, idx) => orderMap.set(id.toString(), idx));
+  } else if (attempt.answers && attempt.answers.length > 0) {
+    attempt.answers.forEach((a, idx) => orderMap.set(a.questionId.toString(), idx));
+  }
+
+  const sortQuestionsByAttemptOrder = (qList) => {
+    if (orderMap.size === 0) return qList;
+    return [...qList].sort((a, b) => {
+      const idxA = orderMap.has(a._id.toString()) ? orderMap.get(a._id.toString()) : a.order || 0;
+      const idxB = orderMap.has(b._id.toString()) ? orderMap.get(b._id.toString()) : b.order || 0;
+      return idxA - idxB;
+    });
+  };
+
   // If attempt is in progress, return questions without answers
   if (attempt.status === 'in_progress') {
-    const questions = await Question.find({ examId: attempt.examId._id })
-      .sort({ order: 1 })
-      .select('-correctOption -explanation');
+    const rawQuestions = await Question.find({ examId: attempt.examId._id });
+    const orderedQuestions = sortQuestionsByAttemptOrder(rawQuestions);
+    const sanitizedQuestions = orderedQuestions.map((q) => {
+      const obj = q.toObject();
+      const isMSQ = obj.questionType === 'MSQ';
+      const selectCount = isMSQ && Array.isArray(obj.correctOptions) ? obj.correctOptions.length : 1;
+      delete obj.correctOption;
+      delete obj.correctOptions;
+      delete obj.explanation;
+      obj.selectCount = selectCount;
+      return obj;
+    });
 
     return res.json({
       success: true,
       attempt,
-      questions,
+      questions: sanitizedQuestions,
     });
   }
 
@@ -168,14 +214,14 @@ export const getAttempt = asyncHandler(async (req, res) => {
   const exam = attempt.examId;
   const canShowAnswers = canRevealAnswerKey(exam);
 
-  let questions;
+  let rawQuestions;
   if (canShowAnswers) {
-    questions = await Question.find({ examId: exam._id }).sort({ order: 1 });
+    rawQuestions = await Question.find({ examId: exam._id });
   } else {
-    questions = await Question.find({ examId: exam._id })
-      .sort({ order: 1 })
+    rawQuestions = await Question.find({ examId: exam._id })
       .select('-correctOption -explanation');
   }
+  const questions = sortQuestionsByAttemptOrder(rawQuestions);
 
   res.json({
     success: true,
@@ -219,6 +265,9 @@ export const saveAnswers = asyncHandler(async (req, res) => {
       if (existing) {
         if (incoming.selectedOption !== undefined) {
           existing.selectedOption = incoming.selectedOption;
+        }
+        if (incoming.selectedOptions !== undefined) {
+          existing.selectedOptions = incoming.selectedOptions;
         }
         if (incoming.isMarkedForReview !== undefined) {
           existing.isMarkedForReview = incoming.isMarkedForReview;
@@ -331,14 +380,36 @@ async function gradeAttempt(attempt, exam) {
       (a) => a.questionId.toString() === question._id.toString()
     );
 
-    if (!answer || answer.selectedOption === null || answer.selectedOption === undefined) {
+    const isMSQ = question.questionType === 'MSQ';
+    let chosen = [];
+    if (Array.isArray(answer?.selectedOptions) && answer.selectedOptions.length > 0) {
+      chosen = answer.selectedOptions;
+    } else if (Array.isArray(answer?.selectedOption)) {
+      chosen = answer.selectedOption;
+    } else if (answer?.selectedOption !== null && answer?.selectedOption !== undefined) {
+      chosen = [answer.selectedOption];
+    }
+
+    if (!answer || chosen.length === 0) {
       unansweredCount++;
-    } else if (answer.selectedOption === question.correctOption) {
-      score += questionMarks;
-      correctCount++;
     } else {
-      score -= questionNegMarks;
-      incorrectCount++;
+      let isCorrect = false;
+      if (isMSQ) {
+        const sortedChosen = [...chosen].map(Number).sort((a, b) => a - b);
+        const sortedCorrect = [...(question.correctOptions || [question.correctOption])].map(Number).sort((a, b) => a - b);
+        isCorrect = sortedChosen.length === sortedCorrect.length &&
+          sortedChosen.every((val, idx) => val === sortedCorrect[idx]);
+      } else {
+        isCorrect = Number(chosen[0]) === question.correctOption;
+      }
+
+      if (isCorrect) {
+        score += questionMarks;
+        correctCount++;
+      } else {
+        score -= questionNegMarks;
+        incorrectCount++;
+      }
     }
   }
 

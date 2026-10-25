@@ -9,8 +9,22 @@ export default function AnswerReviewCard({
 }) {
   const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
   const userOption = selectedAnswer?.selectedOption;
-  const isUnanswered = userOption === null || userOption === undefined;
-  const isCorrect = !isUnanswered && userOption === question.correctOption;
+  const isMSQ = question.questionType === 'MSQ';
+  const userChoices = Array.isArray(selectedAnswer?.selectedOptions) && selectedAnswer.selectedOptions.length > 0
+    ? selectedAnswer.selectedOptions
+    : (Array.isArray(userOption)
+        ? userOption
+        : (userOption !== null && userOption !== undefined ? [userOption] : []));
+
+  const realCorrect = Array.isArray(question.correctOptions) && question.correctOptions.length > 0
+    ? question.correctOptions
+    : (question.correctOption !== null && question.correctOption !== undefined ? [question.correctOption] : []);
+
+  const isUnanswered = userChoices.length === 0;
+  const isCorrect = !isUnanswered && (isMSQ
+    ? (userChoices.length === realCorrect.length &&
+       [...userChoices].sort((a,b) => a-b).every((v, i) => v === [...realCorrect].sort((a,b) => a-b)[i]))
+    : (userOption === question.correctOption));
 
   return (
     <div
@@ -28,6 +42,11 @@ export default function AnswerReviewCard({
           <span className="font-bold text-xs px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200">
             Q{questionNumber}
           </span>
+          {isMSQ && (
+            <span className="font-bold text-xs px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              MSQ
+            </span>
+          )}
           {question.topic && (
             <span className="text-xs text-slate-400 font-medium px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
               {question.topic}
@@ -55,6 +74,11 @@ export default function AnswerReviewCard({
       {/* Question Text */}
       <h3 className="text-base font-semibold text-white leading-relaxed mb-4">
         {question.questionText}
+        {isMSQ && (
+          <span className="ml-2.5 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 align-middle">
+            (Select {question.selectCount || realCorrect.length || 2} options)
+          </span>
+        )}
       </h3>
 
       {question.imageUrl && (
@@ -70,8 +94,8 @@ export default function AnswerReviewCard({
       {/* Options List */}
       <div className="space-y-2.5 mb-5">
         {question.options.map((opt, idx) => {
-          const isUserChoice = userOption === idx;
-          const isRealCorrect = showAnswerKey && question.correctOption === idx;
+          const isUserChoice = userChoices.includes(idx);
+          const isRealCorrect = showAnswerKey && realCorrect.includes(idx);
 
           let optionStyle = 'bg-slate-900/60 border-slate-800 text-slate-300';
           let badgeStyle = 'bg-slate-800 text-slate-400 border-slate-700';

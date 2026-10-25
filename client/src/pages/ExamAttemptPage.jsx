@@ -110,11 +110,25 @@ export default function ExamAttemptPage() {
   const handleSelectOption = (optionIndex) => {
     const currentQ = questions[currentIndex];
     if (!currentQ) return;
+    const isMSQ = currentQ.questionType === 'MSQ';
 
     setAnswers((prev) => {
       const next = prev.map((a) => {
         if (a.questionId?.toString() === currentQ._id?.toString()) {
-          return { ...a, selectedOption: optionIndex };
+          if (isMSQ) {
+            const currentList = Array.isArray(a.selectedOptions) && a.selectedOptions.length > 0
+              ? a.selectedOptions
+              : (Array.isArray(a.selectedOption) ? a.selectedOption : (a.selectedOption !== null && a.selectedOption !== undefined ? [a.selectedOption] : []));
+            const nextList = currentList.includes(optionIndex)
+              ? currentList.filter((idx) => idx !== optionIndex)
+              : [...currentList, optionIndex].sort((a, b) => a - b);
+            return {
+              ...a,
+              selectedOption: nextList.length > 0 ? nextList : null,
+              selectedOptions: nextList,
+            };
+          }
+          return { ...a, selectedOption: optionIndex, selectedOptions: [optionIndex] };
         }
         return a;
       });
@@ -131,7 +145,7 @@ export default function ExamAttemptPage() {
     setAnswers((prev) => {
       const next = prev.map((a) => {
         if (a.questionId?.toString() === currentQ._id?.toString()) {
-          return { ...a, selectedOption: null };
+          return { ...a, selectedOption: null, selectedOptions: [] };
         }
         return a;
       });
